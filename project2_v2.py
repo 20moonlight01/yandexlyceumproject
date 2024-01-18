@@ -1,4 +1,3 @@
-# ПРОМЕЖУТОЧНЫЙ ВАРИАНТ; ПОКА РЕАЛИЗОВАНЫ НЕ ВСЕ ЗАПЛАНИРОВАННЫЕ ДЕТАЛИ
 import sys
 import sqlite3
 import pygame
@@ -20,9 +19,13 @@ DATA = {
     'level3': (30, 3, 0)
 }
 FOOD = {
-    'potato.png': (0, 100),
-    'carrot.png': (200, 100),
-    'apple.png': (400, 100)
+    'matches_new.png': [580, 530],
+    'milk_new.png': [15, 480],
+    'cereal_new.png': [760, 550],
+    'berries_new.png': [130, 530],
+    'salt_new.png': [750, 150],
+    'sugar_new.png': [760, 320],
+    'spoon_new.png': [625, 100]
 }
 
 
@@ -169,7 +172,7 @@ class AuthorisationWindow(QMainWindow):
                 self.remember_user()
                 self.login_input.clear()
                 self.password_input.clear()
-                self.main_menu = MainMenu()
+                self.main_menu = MainMenu(self.entered_login)
                 self.main_menu.show()
         except NoValueError:
             self.edit_error_message('Кажется, вы забыли ввести логин или пароль')
@@ -193,13 +196,14 @@ class AuthorisationWindow(QMainWindow):
 
     def remember_user(self):
         with open('users.txt', mode='w') as file:
-            entered_login = self.login_input.text()
-            file.write(entered_login)
+            self.entered_login = self.login_input.text()
+            file.write(self.entered_login)
 
 
 class MainMenu(QWidget):
-    def __init__(self):
+    def __init__(self, login):
         super().__init__()
+        self.entered_login = login
         self.initUI()
 
     def initUI(self):
@@ -251,32 +255,61 @@ class MainMenu(QWidget):
         self.achievements.resize(100, 100)
         self.achievements.move(410, 660)
         self.achievements.setStyleSheet('QPushButton {background-color: pink;}')
+        self.achievements.clicked.connect(self.show_achievements)
 
         self.results = QMessageBox(self)
+        self.levels_passed = QMessageBox(self)
 
     def run_minigame(self):
         if self.sender() == self.level1:
-            self.minigame = CatchingRaspberries(DATA['level1'][0], DATA['level1'][1])
+            le = 'level1'
         elif self.sender() == self.level2:
-            self.minigame = CatchingRaspberries(DATA['level2'][0], DATA['level2'][1])
+            le = 'level2'
         elif self.sender() == self.level3:
-            self.minigame = CatchingRaspberries(DATA['level3'][0], DATA['level3'][1])
+            le = 'level3'
+        self.minigame = CatchingRaspberries(DATA[le][0], DATA[le][1])
         self.minigame.run()
-        self.edit_results_message()
-        self.results.show()
+        with open('results.txt') as file:
+            self.data = file.readlines()
+        if self.data[0] == 'next':
+            self.next_window = WindowInBetween(level=le)
+            self.next_window.show()
+        else:
+            self.edit_results_message()
 
     def edit_results_message(self):
-        with open('results.txt') as file:
-            data = file.readlines()
-        if int(data[0]) == 0:
+        if int(self.data[0]) == 0:
             self.results.setText('К сожалению, ты проиграл...')
-        elif int(data[0]) == -1:
+        elif int(self.data[0]) == -1:
             self.results.setText('Похоже, ты вышел из игры...')
-        elif int(data[0]) == 10:
-            self.results.setText('Поздравляю, ты выиграл!')
-        self.results.setInformativeText(f'Малины собрано: {int(data[1])}\nМалины пропущено: {int(data[2])}')
+        self.results.setInformativeText(f'Малины собрано: {int(self.data[1])}\nМалины пропущено: {int(self.data[2])}')
         self.results.setIcon(QMessageBox.Information)
         self.results.setWindowTitle("Конец игры")
+        self.results.show()
+
+    def show_achievements(self):
+        connection = sqlite3.connect('records_database.db')
+        cursor = connection.cursor()
+        achievements = cursor.execute('SELECT * FROM Records WHERE login = ?',
+                                  (self.entered_login,)).fetchone()
+        connection.commit()
+        connection.close()
+        if int(achievements[1]) == 1:
+            lev1 = 'пройден'
+        else:
+            lev1 = 'не пройден'
+        if int(achievements[2]) == 1:
+            lev2 = 'пройден'
+        else:
+            lev2 = 'не пройден'
+        if int(achievements[3]) == 1:
+            lev3 = 'пройден'
+        else:
+            lev3 = 'не пройден'
+        self.levels_passed.setText(f'Игрок {self.entered_login}\nУровень 1: {lev1}\nУровень 2: {lev2}\nУровень 3: {lev3}')
+        self.levels_passed.setIcon(QMessageBox.Information)
+        self.levels_passed.setWindowTitle("Достижения")
+        self.levels_passed.show()
 
 
 class RegistrationWindow(QWidget):
@@ -429,18 +462,19 @@ class CatchingRaspberries:
             pygame.display.flip()
             self.time_ranges += 1
             self.clock.tick(FPS)
-        # if self.is_passed:
-            # self.minigame2 = CookingPorridge()
-            # self.minigame2.run()
-        self.remember_result()
+        if self.is_passed:
+            with open('results.txt', mode='w') as file:
+                file.write('next')
+        else:
+            self.remember_result()
         pygame.quit()
 
     def draw_score(self):
-        score_surface = self.font.render(f"Собрано: {self.score}", True, (255, 255, 255))
-        score_surface2 = self.font.render(f"Потеряно: {self.bad_score}", True, (255, 255, 255))
+        caught = self.font.render(f"Собрано: {self.score}", True, (255, 255, 255))
+        lost = self.font.render(f"Потеряно: {self.bad_score}", True, (255, 255, 255))
         pygame.draw.rect(self.screen, (0, 0, 0), Rect(0, 0, 150, 80))
-        self.screen.blit(score_surface, (10, 10))
-        self.screen.blit(score_surface2, (10, 40))
+        self.screen.blit(caught, (10, 10))
+        self.screen.blit(lost, (10, 40))
 
     def remember_result(self):
         with open('results.txt', mode='w') as file:
@@ -490,8 +524,94 @@ class Basket(pygame.sprite.Sprite):
             if self.rect.x >= self.speed:
                 self.rect = self.rect.move(-self.speed, 0)
         elif pygame.key.get_pressed()[K_RIGHT]:
-            if self.rect.x <= (WIDTH - self.speed):
+            if (self.rect.x + self.rect.w) <= (WIDTH - self.speed):
                 self.rect = self.rect.move(self.speed, 0)
+
+
+class WindowInBetween(QWidget):
+    def __init__(self, level):
+        super().__init__()
+        self.level = level
+        self.initUI()
+
+    def initUI(self):
+        self.setGeometry(350, 100, WIDTH, HEIGHT)
+        self.setWindowTitle('Приготовься')
+
+        self.background = QPixmap('raspberries.png')
+        self.background.scaled(WIDTH, HEIGHT)
+        self.opacity_effect = QGraphicsOpacityEffect()
+        self.opacity_effect.setOpacity(0.5)
+        self.background_display = QLabel(self)
+        self.background_display.resize(WIDTH, HEIGHT)
+        self.background_display.move(0, 0)
+        self.background_display.setPixmap(self.background)
+        self.background_display.setGraphicsEffect(self.opacity_effect)
+
+        self.font1 = QFont('Times New Roman', 15)
+        self.font1.setBold(True)
+
+        self.font2 = QFont('Times New Roman', 20)
+        self.font2.setBold(True)
+
+        self.congrats = QLabel(self)
+        self.congrats.resize(700, 100)
+        self.congrats.move(150, 100)
+        self.congrats.setFont(self.font2)
+        self.congrats.setText("Молодец! Ты справился с первым заданием!")
+
+        self.info = QLabel(self)
+        self.info.resize(700, 100)
+        self.info.move(130, 200)
+        self.info.setFont(self.font1)
+        self.info.setText("Теперь тебе предстоит как можно быстрее приготовить кашу")
+
+        self.goon = QPushButton('Продолжить', self)
+        self.goon.resize(200, 100)
+        self.goon.move(380, 500)
+        self.goon.setFont(self.font1)
+        self.goon.clicked.connect(self.open_minigame2)
+
+        self.results = QMessageBox(self)
+
+    def open_minigame2(self):
+        self.minigame2 = CookingPorridge()
+        self.minigame2.run()
+        self.edit_results_message()
+        self.close()
+
+    def edit_results_message(self):
+        with open('results.txt') as file:
+            self.data = file.readlines()
+        if int(self.data[0]) == 10:
+            self.results.setText('К сожалению, ты проиграл...')
+        elif int(self.data[0]) == -10:
+            self.results.setText('Похоже, ты вышел из игры...')
+        elif int(self.data[0]) == 11:
+            self.results.setText('Поздравляю, ты выиграл!')
+            self.remember_record()
+        self.results.setIcon(QMessageBox.Information)
+        self.results.setWindowTitle("Конец игры")
+        self.results.show()
+
+    def remember_record(self):
+        with open('users.txt', mode='r') as file:
+            current_user = file.readline()
+        connection = sqlite3.connect('records_database.db')
+        cursor = connection.cursor()
+        if self.level == 'level1':
+            cursor.execute('UPDATE Records SET level1 = ? WHERE login = ?',
+                           (1, current_user))
+
+        elif self.level == 'level2':
+            cursor.execute('UPDATE Records SET level2 = ? WHERE login = ?',
+                           (1, current_user))
+
+        elif self.level == 'level3':
+            cursor.execute('UPDATE Records SET level3 = ? WHERE login = ?',
+                           (1, current_user))
+        connection.commit()
+        connection.close()
 
 
 class CookingPorridge:
@@ -502,53 +622,94 @@ class CookingPorridge:
         self.screen = pygame.display.set_mode((self.width, self.height))
         pygame.display.set_caption("Приготовь кашу")
         self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("Arial", 24)
+        self.font = pygame.font.SysFont("Times New Roman", 24)
         self.ingredients = pygame.sprite.Group()
         self.pot = pygame.sprite.Group()
+        self.fire = pygame.sprite.Group()
+        self.background = load_image('kitchen.png')
+        self.fire_is_burning = False
+        self.is_quit = False
+        self.is_passed = False
         Pot(self.pot)
+        Fire(self.fire)
+        i = 1
         for ingr in FOOD:
-            Ingredient(self.ingredients, image_file=ingr, x=FOOD[ingr][0], y=FOOD[ingr][1])
+            Ingredient(self.ingredients, image_file=ingr, x=FOOD[ingr][0], y=FOOD[ingr][1], number=i)
+            i += 1
+        self.next = 1
 
     def run(self):
-        running = True
-        while running:
-            self.screen.fill((0, 0, 0))
+        self.running = True
+        while self.running:
+            self.screen.blit(self.background, (0, 0))
             for event in pygame.event.get():
                 if event.type == QUIT:
-                    running = False
+                    self.running = False
+                    self.is_quit = True
                 else:
                     self.ingredients.update(event)
 
+            self.fire.update()
             self.pot.draw(self.screen)
             self.ingredients.draw(self.screen)
+            self.draw_subtitles()
+            if self.fire_is_burning:
+                self.fire.draw(self.screen)
 
             pygame.display.flip()
+            self.clock.tick(FPS)
+        self.remember_result()
         pygame.quit()
+
+    def draw_subtitles(self):
+        matches = self.font.render("1.Зажги огонь", True, (255, 255, 255))
+        milk = self.font.render("2.Влей молоко", True, (0, 0, 0))
+        cereal = self.font.render("3.Засыпь овсяные хлопья", True, (255, 255, 255))
+        berries = self.font.render("4.Всыпь малину", True, (255, 255, 255))
+        salt = self.font.render("5.Добавь соль", True, (0, 0, 0))
+        sugar = self.font.render("6.Добавь сахар", True, (255, 255, 255))
+        spoon = self.font.render("7.Помешай половником", True, (0, 0, 0))
+        self.screen.blit(matches, (560, 620))
+        self.screen.blit(milk, (15, 440))
+        self.screen.blit(cereal, (630, 670))
+        self.screen.blit(berries, (100, 620))
+        self.screen.blit(salt, (740, 120))
+        self.screen.blit(sugar, (730, 445))
+        self.screen.blit(spoon, (550, 50))
 
     def remember_result(self):
         with open('results.txt', mode='w') as file:
-            pass
+            if self.is_quit:
+                file.write('-10\n')
+            elif self.is_passed:
+                file.write('11\n')
+            else:
+                file.write('10\n')
 
 
 class Pot(pygame.sprite.Sprite):
     def __init__(self, *group):
         super().__init__(*group)
-        self.image = load_image('pot.png', -1)
+        self.image = load_image('pot_new.png', -1)
         self.rect = self.image.get_rect()
-        self.rect.x = 500
+        self.rect.x = 265
         self.rect.y = 500
         self.mask = pygame.mask.from_surface(self.image)
 
 
 class Ingredient(pygame.sprite.Sprite):
-    def __init__(self, *group, image_file, x, y):
+    def __init__(self, *group, image_file, x, y, number):
         super().__init__(*group)
         self.image = load_image(image_file, -1)
         self.rect = self.image.get_rect()
         self.rect.x = x
         self.rect.y = y
+        self.x0 = x
+        self.y0 = y
+        self.done = False
         self.mask = pygame.mask.from_surface(self.image)
         self.moving = False
+        self.number = number
 
     def update(self, *args):
         if args and args[0].type == MOUSEBUTTONDOWN:
@@ -556,10 +717,62 @@ class Ingredient(pygame.sprite.Sprite):
                 self.moving = True
         elif args and args[0].type == MOUSEBUTTONUP:
             self.moving = False
-            if pygame.sprite.collide_mask(self, win.main_menu.minigame.minigame2.pot.sprites()[0]):
-                self.kill()
+            if pygame.sprite.collide_mask(self, win.main_menu.next_window.minigame2.pot.sprites()[0]):
+                if win.main_menu.next_window.minigame2.next == self.number:
+                    win.main_menu.next_window.minigame2.next += 1
+                    if self.number == 1:
+                        win.main_menu.next_window.minigame2.fire_is_burning = True
+                    elif self.number == 7:
+                        win.main_menu.next_window.minigame2.is_passed = True
+                        win.main_menu.next_window.minigame2.running = False
+                    self.kill()
+                else:
+                    win.main_menu.next_window.minigame2.running = False
+            else:
+                self.rect.x = self.x0
+                self.rect.y = self.y0
         elif args and args[0].type == MOUSEMOTION and self.moving:
             self.rect.move_ip(args[0].rel)
+
+
+class Fire(pygame.sprite.Sprite):
+    def __init__(self, *group):
+        super().__init__(*group)
+        self.image = load_image('fire1.png', -1)
+        self.rect = self.image.get_rect()
+        self.rect.x = 350
+        self.rect.y = 600
+        self.count = 2
+        self.count2 = 1
+
+    def update(self):
+        if self.count == 1:
+            self.image = load_image('fire1.png', -1)
+            self.count2 += 1
+            if self.count2 == 6:
+                self.count2 = 0
+                self.count += 1
+        elif self.count == 2:
+            self.image = load_image('fire2.png', -1)
+            self.count2 += 1
+            if self.count2 == 6:
+                self.count2 = 0
+                self.count += 1
+        elif self.count == 3:
+            self.image = load_image('fire3.png', -1)
+            self.count2 += 1
+            if self.count2 == 6:
+                self.count2 = 0
+                self.count += 1
+        elif self.count == 4:
+            self.image = load_image('fire4.png', -1)
+            self.count2 += 1
+            if self.count2 == 6:
+                self.count2 = 0
+                self.count = 1
+        self.rect = self.image.get_rect()
+        self.rect.x = 350
+        self.rect.y = 600
 
 
 if __name__ == '__main__':
